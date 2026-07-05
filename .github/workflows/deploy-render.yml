@@ -15,25 +15,13 @@ jobs:
       - name: Deploy to Render
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
-          NIM_KEY_0: ${{ secrets.NIM_API_KEY }}
-          NIM_KEY_1: ${{ secrets.NIM_API_KEY_1 }}
-          NIM_KEY_2: ${{ secrets.NIM_API_KEY_2 }}
-          NIM_KEY_3: ${{ secrets.NIM_API_KEY_3 }}
-          NIM_KEY_4: ${{ secrets.NIM_API_KEY_4 }}
-          NIM_KEY_5: ${{ secrets.NIM_API_KEY_5 }}
-          NIM_KEY_6: ${{ secrets.NIM_API_KEY_6 }}
-          NIM_KEY_7: ${{ secrets.NIM_API_KEY_7 }}
         run: |
           python3 << 'PYEOF'
-          import urllib.request, urllib.error, json, os, sys
+          import urllib.request, urllib.error, json, os
 
           API_KEY = os.environ['RENDER_KEY']
-          OWNER_ID = 'tea-d8qqtternols73ehmla0'
-          HEADERS = {
-              'Authorization': f'Bearer {API_KEY}',
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-          }
+          SID = 'srv-d959uffaqgkc73esmtm0'
+          HEADERS = {'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json', 'Accept': 'application/json'}
 
           def api(method, path, data=None):
               url = f'https://api.render.com/v1{path}'
@@ -43,89 +31,34 @@ jobs:
                   resp = urllib.request.urlopen(req, timeout=30)
                   return json.loads(resp.read()) if resp.status != 204 else {}
               except urllib.error.HTTPError as e:
-                  err = e.read().decode()
-                  print(f'  API ERROR {e.code}: {err}')
-                  return None
+                  return {'_error': f'{e.code}: {e.read().decode()[:200]}'}
               except Exception as e:
-                  print(f'  Network error: {e}')
-                  return None
+                  return {'_error': str(e)}
 
-          # Step 1: Find existing
-          print('=== Step 1: Find existing service ===')
-          services = api('GET', '/services?limit=100') or []
-          sid = None
-          for item in services:
-              s = item.get('service', {})
-              if s.get('name') == 'abby-ai-runtime':
-                  sid = s['id']
-                  print(f'  Found: {sid}')
-                  break
+          # Step 1: Verify service exists
+          print('=== Step 1: Verify service ===')
+          svc = api('GET', f'/services/{SID}')
+          name = svc.get('service', {}).get('name', 'NOT FOUND')
+          print(f'  Service: {name}')
 
-          # Step 2: Create
-          if not sid:
-              print('=== Step 2: Create service ===')
-              result = api('POST', '/services', {
-                  'type': 'web_service',
-                  'name': 'abby-ai-runtime',
-                  'ownerId': OWNER_ID,
-                  'repo': 'https://github.com/ABBYCRM/abby-ai-runtime',
-                  'branch': 'main',
-                  'runtime': 'docker',
-                  'region': 'oregon',
-                  'plan': 'starter',
-                  'dockerfilePath': './Dockerfile',
-                  'healthCheckPath': '/health',
-                  'autoDeploy': 'yes',
-                  'serviceDetails': {
-                      'env': 'docker',
-                      'envSpecificDetails': {}
-                  }
-              })
-              if result:
-                  sid = result.get('id') or result.get('service', {}).get('id')
-                  print(f'  Created: {sid}')
-                  if not sid:
-                      print(f'  Response: {json.dumps(result)[:300]}')
-              else:
-                  print('  CREATE FAILED')
-                  sys.exit(1)
+          # Step 2: Ensure env vars are set
+          print('=== Step 2: Set env vars ===')
+          env_vars = {'PORT': '10000', 'HOST': '0.0.0.0'}
+          for k, v in env_vars.items():
+              r = api('PUT', f'/services/{SID}/env-vars/{k}', {'value': v})
+              print(f'  {k}: ok' if '_error' not in r else f'  {k}: fail')
 
-          if not sid:
-              print('No service ID. Aborting.')
-              sys.exit(1)
+          # Step 3: TRIGGER DEPLOY (the critical missing step)
+          print('=== Step 3: TRIGGER DEPLOY ===')
+          deploy = api('POST', f'/services/{SID}/deploys', {'clearCache': 'do_not_clear'})
+          if '_error' in deploy:
+              print(f'  Deploy trigger failed: {deploy["_error"]}')
+              # Try alternate endpoint
+              deploy2 = api('POST', f'/services/{SID}/deploy', {})
+              print(f'  Alternate: {deploy2}')
+          else:
+              did = deploy.get('id', deploy.get('deploy', {}).get('id', '?'))
+              print(f'  Deploy triggered: {did}')
 
-          # Step 3: Env vars
-          print('\n=== Step 3: Set environment variables ===')
-          env_vars = {
-              'PORT': '10000',
-              'HOST': '0.0.0.0',
-              'ABBY_MODEL': 'nvidia/llama-3.1-nemotron-70b-instruct',
-              'NIM_BASE_URL': 'https://integrate.api.nvidia.com/v1',
-              'ABBY_MAX_TOKENS': '8192',
-              'ABBY_CREW_TEMP': '0.2',
-              'ABBY_METAGPT_TEMP': '0.1',
-          }
-          for i in range(8):
-              val = os.environ.get(f'NIM_KEY_{i}', '')
-              if val:
-                  key = 'NIM_API_KEY' if i == 0 else f'NIM_API_KEY_{i}'
-                  env_vars[key] = val
-
-          for key, value in env_vars.items():
-              print(f'  {key}... ', end='', flush=True)
-              r = api('PUT', f'/services/{sid}/env-vars/{key}', {'value': value})
-              print('ok' if r else 'FAIL')
-
-          # Step 4: Verify
-          print('\n=== Step 4: Verify ===')
-          info = api('GET', f'/services/{sid}')
-          if info:
-              s = info.get('service', {})
-              print(f"  Name: {s.get('name')}")
-              print(f"  ID: {s.get('id')}")
-              print(f"  Dashboard: {s.get('dashboardUrl')}")
-              print(f"  Status: {'suspended' if s.get('serviceDetails', {}).get('suspended') == 'suspended' else 'active'}")
-              print(f"  URL: https://{s.get('name')}.onrender.com")
-
-          print('\n=== DEPLOY COMPLETE ===')
+          print('=== DEPLOY TRIGGERED ===')
           PYEOF
