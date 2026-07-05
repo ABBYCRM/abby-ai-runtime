@@ -7,11 +7,17 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     steps:
-      - name: List Render Services
+      - name: Get Owner ID
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          echo "=== All Services ==="
-          curl -s "https://api.render.com/v1/services?limit=100" \
+          echo "=== Getting owner info ==="
+          curl -s "https://api.render.com/v1/owners" \
             -H "Authorization: Bearer ${RENDER_KEY}" \
-            -H "Accept: application/json" | jq -r '.[].service | "\(.name) | \(.id) | \(.dashboardUrl) | \(.suspended // "active")"'
+            -H "Accept: application/json" | jq '.[0] | {id, name, email}'
+          
+          echo ""
+          echo "=== Getting first service ownerId ==="
+          curl -s "https://api.render.com/v1/services?limit=1" \
+            -H "Authorization: Bearer ${RENDER_KEY}" \
+            -H "Accept: application/json" | jq '.[0].service.ownerId'
