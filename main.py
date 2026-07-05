@@ -266,7 +266,7 @@ async def root():
 # =============================================================================
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "9000"))
+    port = int(os.getenv("PORT", "10000"))
     host = os.getenv("HOST", "0.0.0.0")
 
     print("=" * 60)
