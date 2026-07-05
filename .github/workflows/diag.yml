@@ -7,7 +7,7 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     steps:
-      - name: Check for abby-ai-runtime
+      - name: Verify abby-ai-runtime
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
@@ -15,6 +15,7 @@ jobs:
           import urllib.request, urllib.error, json, os
 
           API_KEY = os.environ['RENDER_KEY']
+          SID = 'srv-d959uffaqgkc73esmtm0'
           HEADERS = {
               'Authorization': f'Bearer {API_KEY}',
               'Accept': 'application/json'
@@ -23,9 +24,7 @@ jobs:
           def api(method, path, data=None):
               url = f'https://api.render.com/v1{path}'
               body = json.dumps(data).encode() if data else None
-              req = urllib.request.Request(url, data=body, headers={
-                  **HEADERS, 'Content-Type': 'application/json'
-              }, method=method)
+              req = urllib.request.Request(url, data=body, headers={**HEADERS, 'Content-Type': 'application/json'}, method=method)
               try:
                   resp = urllib.request.urlopen(req, timeout=30)
                   return json.loads(resp.read())
@@ -34,34 +33,24 @@ jobs:
               except Exception as e:
                   return {'_error': str(e)}
 
-          print('=== ALL SERVICES ===')
-          services = api('GET', '/services?limit=100')
-          names = []
-          for item in (services if isinstance(services, list) else []):
-              s = item.get('service', {})
-              name = s.get('name', '?')
-              names.append(name)
-              if 'abby' in name.lower():
-                  print(f"FOUND ABBY SERVICE: {name} | {s.get('id')} | {s.get('dashboardUrl')}")
+          # Get service info
+          print('=== SERVICE INFO ===')
+          info = api('GET', f'/services/{SID}')
+          s = info.get('service', {})
+          print(f"Name: {s.get('name')}")
+          print(f"ID: {s.get('id')}")
+          print(f"URL: https://{s.get('name')}.onrender.com")
+          print(f"Dashboard: {s.get('dashboardUrl')}")
+          print(f"Suspended: {s.get('serviceDetails', {}).get('suspended', 'N/A')}")
+          print(f"Last Deployed: {s.get('serviceDetails', {}).get('lastSuccessfulDeployAt', 'N/A')}")
 
-          print(f'\nTotal services: {len(names)}')
-          print(f'Service names: {names}')
-
-          if 'abby-ai-runtime' not in names:
-              print('\n=== TRYING TO CREATE ===')
-              result = api('POST', '/services', {
-                  'type': 'web_service',
-                  'name': 'abby-ai-runtime',
-                  'ownerId': 'tea-d8qqtternols73ehmla0',
-                  'repo': 'https://github.com/ABBYCRM/abby-ai-runtime',
-                  'branch': 'main',
-                  'runtime': 'docker',
-                  'region': 'oregon',
-                  'plan': 'starter',
-                  'dockerfilePath': './Dockerfile',
-                  'healthCheckPath': '/health',
-                  'autoDeploy': 'yes',
-                  'serviceDetails': {'env': 'docker', 'envSpecificDetails': {}}
-              })
-              print(f'Create result: {json.dumps(result, indent=2)[:800]}')
+          # Get env vars
+          print('\n=== ENVIRONMENT VARIABLES ===')
+          envs = api('GET', f'/services/{SID}/env-vars')
+          for item in (envs if isinstance(envs, list) else []):
+              ev = item.get('envVar', {})
+              key = ev.get('key', '?')
+              val = ev.get('value', '')
+              display = val[:4] + '****' if len(val) > 8 else ('****' if val else '(empty)')
+              print(f"  {key}: {display}")
           PYEOF
