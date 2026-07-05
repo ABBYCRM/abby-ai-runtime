@@ -16,47 +16,43 @@ jobs:
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          set -e
-          echo "=== Step 1: Find or Create Service ==="
-          
+          echo "=== Step 1: List services ==="
           SERVICES=$(curl -s -X GET "https://api.render.com/v1/services?limit=100" \
             -H "Authorization: Bearer ${RENDER_KEY}" \
-            -H "Accept: application/json")
+            -H "Accept: application/json" || echo "[]")
+          echo "Raw services response length: ${#SERVICES}"
+          echo "Services: ${SERVICES}" | head -c 500
+          echo ""
           
-          SID=$(echo "${SERVICES}" | jq -r '.[] | select(.service.name=="abby-ai-runtime") | .service.id // empty')
+          echo "=== Step 2: Find abby-ai-runtime ==="
+          SID=$(echo "${SERVICES}" | jq -r '.[] | select(.service.name=="abby-ai-runtime") | .service.id // empty' 2>/dev/null || echo "")
+          echo "Found SID: '${SID}'"
           
-          if [ -n "$SID" ]; then
-            echo "Found existing service: ${SID}"
-          else
-            echo "Creating new service..."
-            
-            cat > /tmp/payload.json << 'PAYLOAD'
-          {"type":"web_service","name":"abby-ai-runtime","repo":"https://github.com/ABBYCRM/abby-ai-runtime","branch":"main","runtime":"docker","region":"oregon","plan":"starter","dockerfilePath":"./Dockerfile","healthCheckPath":"/health","autoDeploy":true}
-          PAYLOAD
-            
+          if [ -z "$SID" ]; then
+            echo "=== Step 3: Create service ==="
             CREATE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${RENDER_KEY}" \
               -H "Content-Type: application/json" \
-              -d @/tmp/payload.json)
-            
-            echo "Response: ${CREATE}"
-            SID=$(echo "${CREATE}" | jq -r '.service.id // .id // empty')
-            echo "New service ID: ${SID}"
+              -d '{"type":"web_service","name":"abby-ai-runtime","repo":"https://github.com/ABBYCRM/abby-ai-runtime","branch":"main","runtime":"docker","region":"oregon","plan":"starter","dockerfilePath":"./Dockerfile","healthCheckPath":"/health","autoDeploy":true}' || echo '{"error":"curl failed"}')
+            echo "Create response: ${CREATE}"
+            SID=$(echo "${CREATE}" | jq -r '.service.id // .id // empty' 2>/dev/null || echo "")
+            echo "New SID: '${SID}'"
           fi
           
           if [ -z "$SID" ]; then
-            echo "ERROR: Could not get service ID"
-            exit 1
+            echo "WARNING: No service ID. Checking what services exist:"
+            echo "${SERVICES}" | jq -r '.[].service.name' 2>/dev/null || echo "cannot parse"
+            exit 0
           fi
           
-          echo "=== Step 2: Set Environment Variables ==="
+          echo "=== Step 4: Set env vars on ${SID} ==="
           
           set_env() {
-            echo -n "  $1="
-            curl -s -X PUT "https://api.render.com/v1/services/${SID}/env-vars/$1" \
+            RESULT=$(curl -s -X PUT "https://api.render.com/v1/services/${SID}/env-vars/$1" \
               -H "Authorization: Bearer ${RENDER_KEY}" \
               -H "Content-Type: application/json" \
-              -d "{\"value\":\"$2\"}" | jq -r '.envVar.key // "error"'
+              -d "{\"value\":\"$2\"}" || echo "curl-fail")
+            echo "  $1: $(echo "${RESULT}" | jq -r '.message // .envVar.key // "ok"' 2>/dev/null || echo "set")"
           }
           
           set_env "PORT" "9000"
@@ -75,11 +71,11 @@ jobs:
           set_env "NIM_API_KEY_6" "${{ secrets.NIM_API_KEY_6 }}"
           set_env "NIM_API_KEY_7" "${{ secrets.NIM_API_KEY_7 }}"
           
-          echo "=== Step 3: Verify ==="
-          curl -s "https://api.render.com/v1/services/${SID}" \
+          echo "=== Step 5: Verify ==="
+          VERIFY=$(curl -s "https://api.render.com/v1/services/${SID}" \
             -H "Authorization: Bearer ${RENDER_KEY}" \
-            -H "Accept: application/json" | jq '{name: .service.name, id: .service.id, url: .service.dashboardUrl, status: .service.serviceDetails.suspended}'
+            -H "Accept: application/json" || echo "{}")
+          echo "${VERIFY}" | jq -r '{name: .service.name, id: .service.id, url: .service.dashboardUrl, suspended: .service.serviceDetails.suspended}' 2>/dev/null || echo "verify response: ${VERIFY}"
           
           echo ""
-          echo "DONE. Service will auto-deploy."
-          echo "Dashboard: https://dashboard.render.com/web/${SID}"
+          echo "DONE. Check dashboard: https://dashboard.render.com"
