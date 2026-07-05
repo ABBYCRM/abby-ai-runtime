@@ -1,0 +1,107 @@
+name: Deploy to Render
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Render Web Service
+        env:
+          RENDER_KEY: ${{ secrets.RENDER_API_KEY || 'rnd_P0n4D9jCRFwCJ7YVDHhB3KDuuOrN' }}
+        run: |
+          echo "=== Checking for existing service ==="
+          EXISTING=$(curl -s -X GET "https://api.render.com/v1/services?name=abby-ai-runtime" \
+            -H "Authorization: Bearer ${RENDER_KEY}" \
+            -H "Accept: application/json" | jq -r '.[0].id // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "Service exists: ${EXISTING}"
+            echo "SERVICE_ID=${EXISTING}" >> $GITHUB_ENV
+          else
+            echo "=== Creating new Web Service ==="
+            CREATE=$(curl -s -X POST "https://api.render.com/v1/services" \
+              -H "Authorization: Bearer ${RENDER_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d '{
+                "type": "web_service",
+                "name": "abby-ai-runtime",
+                "ownerId": "usr-ABBYCRM",
+                "repo": "https://github.com/ABBYCRM/abby-ai-runtime",
+                "branch": "main",
+                "runtime": "docker",
+                "region": "oregon",
+                "plan": "starter",
+                "dockerfilePath": "./Dockerfile",
+                "healthCheckPath": "/health",
+                "autoDeploy": true
+              }')
+            echo "Create response: ${CREATE}"
+            SID=$(echo "${CREATE}" | jq -r '.id // empty')
+            echo "SERVICE_ID=${SID}" >> $GITHUB_ENV
+          fi
+
+      - name: Set Environment Variables
+        env:
+          RENDER_KEY: ${{ secrets.RENDER_API_KEY || 'rnd_P0n4D9jCRFwCJ7YVDHhB3KDuuOrN' }}
+          SERVICE_ID: ${{ env.SERVICE_ID }}
+        run: |
+          echo "=== Setting env vars on service ${SERVICE_ID} ==="
+
+          set_env() {
+            curl -s -X PUT "https://api.render.com/v1/services/${SERVICE_ID}/env-vars/${1}" \
+              -H "Authorization: Bearer ${RENDER_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"value\":\"${2}\"}" | jq -r '.message // "ok"'
+          }
+
+          set_env "PORT" "9000"
+          set_env "HOST" "0.0.0.0"
+          set_env "ABBY_MODEL" "nvidia/llama-3.1-nemotron-70b-instruct"
+          set_env "NIM_BASE_URL" "https://integrate.api.nvidia.com/v1"
+          set_env "ABBY_MAX_TOKENS" "8192"
+          set_env "ABBY_CREW_TEMP" "0.2"
+          set_env "ABBY_METAGPT_TEMP" "0.1"
+
+          # Set NIM API keys from secrets
+          set_env "NIM_API_KEY" "${{ secrets.NIM_API_KEY }}"
+          set_env "NIM_API_KEY_1" "${{ secrets.NIM_API_KEY_1 }}"
+          set_env "NIM_API_KEY_2" "${{ secrets.NIM_API_KEY_2 }}"
+          set_env "NIM_API_KEY_3" "${{ secrets.NIM_API_KEY_3 }}"
+          set_env "NIM_API_KEY_4" "${{ secrets.NIM_API_KEY_4 }}"
+          set_env "NIM_API_KEY_5" "${{ secrets.NIM_API_KEY_5 }}"
+          set_env "NIM_API_KEY_6" "${{ secrets.NIM_API_KEY_6 }}"
+          set_env "NIM_API_KEY_7" "${{ secrets.NIM_API_KEY_7 }}"
+
+          echo "Env vars set"
+
+      - name: Trigger Deploy
+        env:
+          RENDER_KEY: ${{ secrets.RENDER_API_KEY || 'rnd_P0n4D9jCRFwCJ7YVDHhB3KDuuOrN' }}
+          SERVICE_ID: ${{ env.SERVICE_ID }}
+        run: |
+          echo "=== Triggering deploy for ${SERVICE_ID} ==="
+          DEPLOY=$(curl -s -X POST "https://api.render.com/v1/services/${SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache": "do_not_clear"}')
+          echo "Deploy response: ${DEPLOY}"
+          echo "DEPLOYED=true" >> $GITHUB_ENV
+
+      - name: Verify Deployment
+        env:
+          RENDER_KEY: ${{ secrets.RENDER_API_KEY || 'rnd_P0n4D9jCRFwCJ7YVDHhB3KDuuOrN' }}
+          SERVICE_ID: ${{ env.SERVICE_ID }}
+        run: |
+          echo "=== Service Status ==="
+          STATUS=$(curl -s "https://api.render.com/v1/services/${SERVICE_ID}" \
+            -H "Authorization: Bearer ${RENDER_KEY}" \
+            -H "Accept: application/json")
+          echo "${STATUS}" | jq '.'
