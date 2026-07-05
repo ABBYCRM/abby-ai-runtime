@@ -1,0 +1,35 @@
+# ABBY - Autonomous Business Bot Yielder
+# Production Dependencies
+
+# Core Framework - CrewAI
+crewai>=0.105.0
+crewai-tools>=0.37.0
+
+# Core Framework - MetaGPT
+metagpt>=0.8.1
+
+# Web Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+
+# Data Validation
+pydantic>=2.10.0
+
+# Configuration
+pyyaml>=6.0.1
+
+# Async Support
+aiofiles>=24.1.0
+
+# HTTP Client (for API calls)
+httpx>=0.28.0
+
+# OpenAI-compatible client (for OpenRouter)
+openai>=1.60.0
+
+# Utils
+python-dotenv>=1.0.1
+python-multipart>=0.0.20
+
+# Monitoring (for Render health checks)
+psutil>=6.1.0

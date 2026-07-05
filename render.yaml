@@ -1,0 +1,30 @@
+# ABBY - Render Deployment Configuration
+# Deploy to: https://dashboard.render.com/
+
+services:
+  - type: web
+    name: abby-ai-runtime
+    runtime: docker
+    plan: standard
+    branch: main
+    rootDir: .
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 9000
+      - key: HOST
+        value: 0.0.0.0
+      - key: ABBY_MODEL
+        value: moonshotai/kimi-k2
+      - key: ABBY_MAX_TOKENS
+        value: "8192"
+      - key: ABBY_CREW_TEMP
+        value: "0.2"
+      - key: ABBY_METAGPT_TEMP
+        value: "0.1"
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: OPENROUTER_API_KEY
+        sync: false  # Set in Render dashboard - DO NOT COMMIT
+    healthCheckPath: /health
+    autoDeploy: true
