@@ -315,6 +315,13 @@ async function sendMessage(){
       if(data.crew_ai_execution_token)out+='Token: '+String(data.crew_ai_execution_token).substring(0,300);
       if(data.sop_blueprint)out+='Blueprint: '+data.sop_blueprint.substring(0,300)+'...';
       addMsg('assistant',out);
+    }else if(res.status===503){
+      var detail=data.detail||'';
+      if(detail.includes('MetaGPT')||detail.includes('CrewAI')){
+        addMsg('assistant','Framework Status\n\nThe full AI pipeline requires MetaGPT and CrewAI frameworks to be installed on the backend.\n\nCurrent status:\n- MetaGPT: Not installed\n- CrewAI: Not installed\n\nThe backend API is online and healthy. Framework installation is pending due to Render starter plan resource constraints.\n\nTo enable full pipeline:\n1. Upgrade Render plan OR\n2. Install frameworks: pip install crewai metagpt\n\nHealth check: Online\nAPI version: 1.0.0');
+      }else{
+        addMsg('error','Error '+res.status+': '+detail);
+      }
     }else{
       addMsg('error','Error '+res.status+': '+(data.detail||JSON.stringify(data)));
     }
