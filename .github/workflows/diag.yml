@@ -7,7 +7,7 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Deploy
+      - name: Force Rebuild
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
@@ -18,40 +18,42 @@ jobs:
           SID = 'srv-d959uffaqgkc73esmtm0'
           HEADERS = {'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json', 'Accept': 'application/json'}
 
-          # Try different deploy endpoints
-          for endpoint in [
-              f'https://api.render.com/v1/services/{SID}/deploys',
-              f'https://api.render.com/v1/services/{SID}/deploy',
-          ]:
-              print(f"\nTrying: {endpoint}")
-              req = urllib.request.Request(
-                  endpoint,
-                  data=b'{}',
-                  headers=HEADERS,
-                  method='POST'
-              )
+          def api(method, path, data=None):
+              url = f'https://api.render.com/v1{path}'
+              body = json.dumps(data).encode() if data else None
+              req = urllib.request.Request(url, data=body, headers=HEADERS, method=method)
               try:
                   resp = urllib.request.urlopen(req, timeout=30)
-                  body = resp.read().decode()
-                  print(f"  Status: {resp.status}")
-                  print(f"  Body: {body[:300]}")
+                  return json.loads(resp.read()) if resp.status != 204 else {}
               except urllib.error.HTTPError as e:
-                  print(f"  HTTP {e.code}: {e.read().decode()[:300]}")
+                  return {'_error': f'{e.code}: {e.read().decode()[:200]}'}
               except Exception as e:
-                  print(f"  Error: {e}")
+                  return {'_error': str(e)}
 
-          # Also check deploys list
-          print("\n=== Recent deploys ===")
-          req2 = urllib.request.Request(
-              f'https://api.render.com/v1/services/{SID}/deploys?limit=5',
-              headers={'Authorization': f'Bearer {API_KEY}', 'Accept': 'application/json'}
-          )
-          try:
-              resp2 = urllib.request.urlopen(req2, timeout=30)
-              deploys = json.loads(resp2.read())
-              for d in deploys:
+          # Check current service details
+          print('=== SERVICE STATUS ===')
+          svc = api('GET', f'/services/{SID}')
+          if isinstance(svc, dict) and 'service' in svc:
+              s = svc['service']
+              sd = s.get('serviceDetails', {})
+              print(f"Name: {s.get('name')}")
+              print(f"Suspended: {sd.get('suspended', 'N/A')}")
+              print(f"Last deploy: {sd.get('lastSuccessfulDeployAt', 'N/A')}")
+          else:
+              print(f"Unexpected: {json.dumps(svc)[:300]}")
+
+          # Check recent deploys
+          print('\n=== DEPLOYS ===')
+          deploys = api('GET', f'/services/{SID}/deploys?limit=3')
+          if isinstance(deploys, list):
+              for d in deploys[:3]:
                   dd = d.get('deploy', {})
-                  print(f"  {dd.get('id', '?')}: status={dd.get('status', '?')}, finishedAt={dd.get('finishedAt', 'N/A')}")
-          except Exception as e:
-              print(f"  Error: {e}")
+                  print(f"  {dd.get('id', '?')}: status={dd.get('status')}, commit={dd.get('commit', {}).get('id', '?')[:8]}")
+          else:
+              print(f"  Error: {json.dumps(deploys)[:200]}")
+
+          # Trigger deploy
+          print('\n=== TRIGGERING DEPLOY ===')
+          d = api('POST', f'/services/{SID}/deploys', {'clearCache': 'do_not_clear'})
+          print(f"Result: {json.dumps(d)[:300] if isinstance(d, dict) else d}")
           PYEOF
