@@ -1,0 +1,17 @@
+name: Diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List Render Services
+        env:
+          RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          echo "=== All Services ==="
+          curl -s "https://api.render.com/v1/services?limit=100" \
+            -H "Authorization: Bearer ${RENDER_KEY}" \
+            -H "Accept: application/json" | jq -r '.[].service | "\(.name) | \(.id) | \(.dashboardUrl) | \(.suspended // "active")"'
