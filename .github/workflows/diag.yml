@@ -7,7 +7,7 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify abby-ai-runtime
+      - name: Raw API Check
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
@@ -16,41 +16,27 @@ jobs:
 
           API_KEY = os.environ['RENDER_KEY']
           SID = 'srv-d959uffaqgkc73esmtm0'
-          HEADERS = {
-              'Authorization': f'Bearer {API_KEY}',
-              'Accept': 'application/json'
-          }
 
           def api(method, path, data=None):
               url = f'https://api.render.com/v1{path}'
               body = json.dumps(data).encode() if data else None
-              req = urllib.request.Request(url, data=body, headers={**HEADERS, 'Content-Type': 'application/json'}, method=method)
+              h = {'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json', 'Accept': 'application/json'}
+              req = urllib.request.Request(url, data=body, headers=h, method=method)
               try:
                   resp = urllib.request.urlopen(req, timeout=30)
                   return json.loads(resp.read())
               except urllib.error.HTTPError as e:
-                  return {'_error': f'{e.code}: {e.read().decode()[:200]}'}
+                  return {'_error': f'{e.code}: {e.read().decode()[:300]}'}
               except Exception as e:
                   return {'_error': str(e)}
 
-          # Get service info
-          print('=== SERVICE INFO ===')
-          info = api('GET', f'/services/{SID}')
-          s = info.get('service', {})
-          print(f"Name: {s.get('name')}")
-          print(f"ID: {s.get('id')}")
-          print(f"URL: https://{s.get('name')}.onrender.com")
-          print(f"Dashboard: {s.get('dashboardUrl')}")
-          print(f"Suspended: {s.get('serviceDetails', {}).get('suspended', 'N/A')}")
-          print(f"Last Deployed: {s.get('serviceDetails', {}).get('lastSuccessfulDeployAt', 'N/A')}")
+          # Raw service dump
+          print('=== RAW SERVICE ===')
+          svc = api('GET', f'/services/{SID}')
+          print(json.dumps(svc, indent=2)[:1500])
 
-          # Get env vars
-          print('\n=== ENVIRONMENT VARIABLES ===')
+          # Raw env vars
+          print('\n=== RAW ENV VARS ===')
           envs = api('GET', f'/services/{SID}/env-vars')
-          for item in (envs if isinstance(envs, list) else []):
-              ev = item.get('envVar', {})
-              key = ev.get('key', '?')
-              val = ev.get('value', '')
-              display = val[:4] + '****' if len(val) > 8 else ('****' if val else '(empty)')
-              print(f"  {key}: {display}")
+          print(json.dumps(envs, indent=2)[:1000])
           PYEOF
