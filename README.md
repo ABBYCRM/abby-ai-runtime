@@ -1,6 +1,6 @@
 # ABBY - Autonomous Business Bot Yielder
 
-> Production multi-agent AI runtime integrating **MetaGPT** (deterministic SOP pipeline) and **CrewAI** (dynamic collaboration swarm), powered by cloud-based high-performance LLM inference.
+> Production multi-agent AI runtime integrating **MetaGPT** (deterministic SOP pipeline) and **CrewAI** (dynamic collaboration swarm), powered by **NVIDIA NIM** cloud inference with multi-key rotation.
 
 ## Architecture
 
@@ -24,24 +24,34 @@ Incoming Webhook
   JSON Execution Token
 ```
 
+## LLM Backend: NVIDIA NIM
+
+ABBY uses **NVIDIA NIM** (NVIDIA Inference Microservices) as its LLM engine:
+- **Endpoint:** `https://integrate.api.nvidia.com/v1`
+- **Model:** `nvidia/llama-3.1-nemotron-70b-instruct`
+- **Multi-key rotation:** Loads multiple API keys for resilience and load distribution
+- **Compatible with:** Any OpenAI-compatible endpoint ( CrewAI + MetaGPT both work natively)
+
 ## Quick Start
 
 ### Prerequisites
 - Python 3.11+
-- OpenRouter API key (get free credits at [openrouter.ai](https://openrouter.ai))
+- NVIDIA NIM API key(s) - get at [build.nvidia.com](https://build.nvidia.com)
 
 ### Local Development
 
 ```bash
 # Clone and setup
-git clone https://github.com/YOUR_USER/abby-ai-runtime.git
+git clone https://github.com/ABBYCRM/abby-ai-runtime.git
 cd abby-ai-runtime
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Set environment variables
-export OPENROUTER_API_KEY="your-key-here"
-export ABBY_MODEL="moonshotai/kimi-k2"
+# Set environment variables (your NIM API keys)
+export NIM_API_KEY="nvapi-YOUR-KEY-HERE"
+export NIM_API_KEY_1="nvapi-SECOND-KEY-HERE"
+export NIM_API_KEY_2="nvapi-THIRD-KEY-HERE"
+export ABBY_MODEL="nvidia/llama-3.1-nemotron-70b-instruct"
 
 # Run
 python main.py
@@ -90,8 +100,10 @@ curl -X POST https://abby-ai-runtime.onrender.com/v1/execute-pipeline \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENROUTER_API_KEY` | *(required)* | Your OpenRouter API key |
-| `ABBY_MODEL` | `moonshotai/kimi-k2` | LLM model identifier |
+| `NIM_API_KEY` | *(required)* | Primary NVIDIA NIM API key |
+| `NIM_API_KEY_1` to `NIM_API_KEY_10` | *(optional)* | Additional keys for rotation |
+| `NIM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NIM endpoint |
+| `ABBY_MODEL` | `nvidia/llama-3.1-nemotron-70b-instruct` | Model identifier |
 | `ABBY_MAX_TOKENS` | `8192` | Max tokens per request |
 | `ABBY_CREW_TEMP` | `0.2` | CrewAI temperature |
 | `ABBY_METAGPT_TEMP` | `0.1` | MetaGPT temperature |
@@ -100,13 +112,42 @@ curl -X POST https://abby-ai-runtime.onrender.com/v1/execute-pipeline \
 
 ## Deployment
 
-### Render (Production)
+### Render (Production) - 2 Methods
 
-1. Connect GitHub repo to Render
-2. Set environment variables in Render Dashboard
-3. Deploy automatically on push to `main`
+#### Method 1: Blueprint (Easiest)
+1. Go to [dashboard.render.com/blueprint](https://dashboard.render.com/blueprint)
+2. Click **New Blueprint Instance**
+3. Connect your GitHub repo: `ABBYCRM/abby-ai-runtime`
+4. Render auto-reads `render.yaml`
+5. Add your NIM API keys in the Render Dashboard under **Environment**
+6. Click **Apply** - service deploys automatically
 
-See `render.yaml` for blueprint configuration.
+#### Method 2: Manual Web Service
+1. Go to [dashboard.render.com](https://dashboard.render.com)
+2. Click **New +** -> **Web Service**
+3. Connect GitHub repo `ABBYCRM/abby-ai-runtime`
+4. Set:
+   - **Runtime:** Docker
+   - **Branch:** main
+   - **Dockerfile Path:** `./Dockerfile`
+   - **Plan:** Standard (or Starter to start)
+5. Add environment variables (see table above)
+6. Click **Create Web Service**
+
+### Adding NIM Keys to Render
+
+In your Render service dashboard:
+```
+Environment -> Add Environment Variable
+```
+
+Add each key:
+- `NIM_API_KEY` = `nvapi-XXXXXXXX`
+- `NIM_API_KEY_1` = `nvapi-YYYYYYYY`
+- `NIM_API_KEY_2` = `nvapi-ZZZZZZZZ`
+- ... (up to 10 keys supported)
+
+ABBY automatically rotates across all available keys for load distribution.
 
 ## Project Structure
 
@@ -114,18 +155,32 @@ See `render.yaml` for blueprint configuration.
 abby-ai-runtime/
   src/
     __init__.py           # Package init
-    config.py             # Global LLM routing config
+    config.py             # Global LLM routing (NVIDIA NIM, multi-key)
     metagpt_pipeline.py   # MetaGPT deterministic pipeline
     crew_swarm.py         # CrewAI dynamic swarm
   main.py                 # FastAPI gateway
   requirements.txt        # Python dependencies
   Dockerfile              # Container image
-  render.yaml             # Render deployment config
+  render.yaml             # Render Blueprint config
   README.md               # This file
   CHANGELOG.md            # Version history
   AI_NOTES.md             # Architecture documentation
+  .github/workflows/
+    deploy.yml            # Auto-deploy on push to main
   .gitignore
+  watch_folder/
+    incoming/             # File drop zone
+    completed/            # Processed output
 ```
+
+## Multi-Key Rotation
+
+ABBY loads all `NIM_API_KEY*` environment variables and:
+1. **Randomly selects** one key on startup for load distribution
+2. **Falls back** gracefully if keys are exhausted
+3. **Scales** across your key pool automatically
+
+Add more keys anytime via Render Dashboard - no restart needed (auto-deploy on env change).
 
 ## License
 

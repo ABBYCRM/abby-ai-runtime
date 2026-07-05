@@ -1,5 +1,6 @@
-# ABBY - Render Deployment Configuration
+# ABBY - Render Deployment Configuration (NVIDIA NIM Edition)
 # Deploy to: https://dashboard.render.com/
+# Blueprint: New Blueprint Instance -> Connect repo -> Auto-deploys
 
 services:
   - type: web
@@ -15,16 +16,31 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: ABBY_MODEL
-        value: moonshotai/kimi-k2
+        value: nvidia/llama-3.1-nemotron-70b-instruct
+      - key: NIM_BASE_URL
+        value: https://integrate.api.nvidia.com/v1
       - key: ABBY_MAX_TOKENS
         value: "8192"
       - key: ABBY_CREW_TEMP
         value: "0.2"
       - key: ABBY_METAGPT_TEMP
         value: "0.1"
-      - key: OPENROUTER_BASE_URL
-        value: https://openrouter.ai/api/v1
-      - key: OPENROUTER_API_KEY
-        sync: false  # Set in Render dashboard - DO NOT COMMIT
+      # NIM API KEYS - Set ALL of these in Render Dashboard (Secrets)
+      - key: NIM_API_KEY
+        sync: false
+      - key: NIM_API_KEY_1
+        sync: false
+      - key: NIM_API_KEY_2
+        sync: false
+      - key: NIM_API_KEY_3
+        sync: false
+      - key: NIM_API_KEY_4
+        sync: false
+      - key: NIM_API_KEY_5
+        sync: false
+      - key: NIM_API_KEY_6
+        sync: false
+      - key: NIM_API_KEY_7
+        sync: false
     healthCheckPath: /health
     autoDeploy: true

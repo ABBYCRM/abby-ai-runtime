@@ -1,11 +1,11 @@
 """
 ABBY - Autonomous Business Bot Yielder
-Unified API Gateway Server
+Unified API Gateway Server (NVIDIA NIM Edition)
 
 This FastAPI application ties together:
   - MetaGPT deterministic SOP pipeline
   - CrewAI dynamic agent swarm
-  - File-based async processing daemon
+  - NVIDIA NIM cloud LLM inference (multi-key rotation)
   - Health checks and monitoring
 
 Routes:
@@ -233,7 +233,9 @@ async def system_status():
         "total_requests_processed": len(_request_log),
         "recent_requests": list(_request_log.keys())[-10:] if _request_log else [],
         "configuration": {
-            "model": os.getenv("ABBY_MODEL", "moonshotai/kimi-k2"),
+            "llm_provider": "nvidia_nim",
+            "model": os.getenv("ABBY_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct"),
+            "nim_endpoint": os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
             "max_tokens": int(os.getenv("ABBY_MAX_TOKENS", "8192")),
             "crewai_temp": float(os.getenv("ABBY_CREW_TEMP", "0.2")),
             "metagpt_temp": float(os.getenv("ABBY_METAGPT_TEMP", "0.1"))
@@ -270,9 +272,11 @@ if __name__ == "__main__":
     print("=" * 60)
     print("  ABBY - Autonomous Business Bot Yielder v1.0.0")
     print("  Multi-Agent AI Runtime: MetaGPT + CrewAI")
+    print("  LLM Backend: NVIDIA NIM Cloud Inference")
     print("=" * 60)
     print(f"  Starting server on {host}:{port}")
-    print(f"  Model: {os.getenv('ABBY_MODEL', 'moonshotai/kimi-k2')}")
+    print(f"  Model: {os.getenv('ABBY_MODEL', 'nvidia/llama-3.1-nemotron-70b-instruct')}")
+    print(f"  NIM Endpoint: {os.getenv('NIM_BASE_URL', 'https://integrate.api.nvidia.com/v1')}")
     print(f"  Docs: http://{host}:{port}/docs")
     print("=" * 60)
 
