@@ -75,7 +75,11 @@ jobs:
                   'plan': 'starter',
                   'dockerfilePath': './Dockerfile',
                   'healthCheckPath': '/health',
-                  'autoDeploy': 'yes'
+                  'autoDeploy': 'yes',
+                  'serviceDetails': {
+                      'env': 'docker',
+                      'envSpecificDetails': {}
+                  }
               })
               if result:
                   sid = result.get('id') or result.get('service', {}).get('id')
