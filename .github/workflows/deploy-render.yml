@@ -12,74 +12,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create Render Web Service
+      - name: Deploy to Render
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          echo "=== Looking for existing abby-ai-runtime service ==="
+          set -e
+          echo "=== Step 1: Find or Create Service ==="
           
-          # Get all services and find the one named exactly "abby-ai-runtime"
           SERVICES=$(curl -s -X GET "https://api.render.com/v1/services?limit=100" \
             -H "Authorization: Bearer ${RENDER_KEY}" \
             -H "Accept: application/json")
-          
-          echo "Services found: $(echo "${SERVICES}" | jq '. | length')"
           
           SID=$(echo "${SERVICES}" | jq -r '.[] | select(.service.name=="abby-ai-runtime") | .service.id // empty')
           
           if [ -n "$SID" ]; then
             echo "Found existing service: ${SID}"
-            echo "SERVICE_ID=${SID}" >> $GITHUB_ENV
           else
-            echo "=== Creating new Web Service ==="
+            echo "Creating new service..."
             
-            # Create JSON payload in a file to avoid escaping issues
-            cat > /tmp/create_payload.json << 'EOF'
-          {
-            "type": "web_service",
-            "name": "abby-ai-runtime",
-            "repo": "https://github.com/ABBYCRM/abby-ai-runtime",
-            "branch": "main",
-            "runtime": "docker",
-            "region": "oregon",
-            "plan": "starter",
-            "dockerfilePath": "./Dockerfile",
-            "healthCheckPath": "/health",
-            "autoDeploy": true
-          }
-          EOF
+            cat > /tmp/payload.json << 'PAYLOAD'
+          {"type":"web_service","name":"abby-ai-runtime","repo":"https://github.com/ABBYCRM/abby-ai-runtime","branch":"main","runtime":"docker","region":"oregon","plan":"starter","dockerfilePath":"./Dockerfile","healthCheckPath":"/health","autoDeploy":true}
+          PAYLOAD
             
             CREATE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${RENDER_KEY}" \
               -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d @/tmp/create_payload.json)
+              -d @/tmp/payload.json)
             
-            echo "Create response: ${CREATE}"
-            SID=$(echo "${CREATE}" | jq -r '.id // .service.id // empty')
-            echo "Extracted ID: ${SID}"
-            echo "SERVICE_ID=${SID}" >> $GITHUB_ENV
-          fi
-
-      - name: Set Environment Variables
-        env:
-          RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
-          SERVICE_ID: ${{ env.SERVICE_ID }}
-        run: |
-          if [ -z "$SERVICE_ID" ]; then
-            echo "No service ID. Skipping env vars."
-            exit 0
+            echo "Response: ${CREATE}"
+            SID=$(echo "${CREATE}" | jq -r '.service.id // .id // empty')
+            echo "New service ID: ${SID}"
           fi
           
-          echo "=== Setting env vars on service ${SERVICE_ID} ==="
+          if [ -z "$SID" ]; then
+            echo "ERROR: Could not get service ID"
+            exit 1
+          fi
+          
+          echo "=== Step 2: Set Environment Variables ==="
           
           set_env() {
-            echo -n "  Setting $1... "
-            RESULT=$(curl -s -X PUT "https://api.render.com/v1/services/${SERVICE_ID}/env-vars/${1}" \
+            echo -n "  $1="
+            curl -s -X PUT "https://api.render.com/v1/services/${SID}/env-vars/$1" \
               -H "Authorization: Bearer ${RENDER_KEY}" \
               -H "Content-Type: application/json" \
-              -d "{\"value\":\"${2}\"}")
-            echo "${RESULT}"
+              -d "{\"value\":\"$2\"}" | jq -r '.envVar.key // "error"'
           }
           
           set_env "PORT" "9000"
@@ -98,30 +75,11 @@ jobs:
           set_env "NIM_API_KEY_6" "${{ secrets.NIM_API_KEY_6 }}"
           set_env "NIM_API_KEY_7" "${{ secrets.NIM_API_KEY_7 }}"
           
-          echo "Env vars done"
-
-      - name: Trigger Deploy
-        env:
-          RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
-          SERVICE_ID: ${{ env.SERVICE_ID }}
-        run: |
-          if [ -z "$SERVICE_ID" ]; then
-            echo "No service ID. Cannot deploy."
-            exit 1
-          fi
+          echo "=== Step 3: Verify ==="
+          curl -s "https://api.render.com/v1/services/${SID}" \
+            -H "Authorization: Bearer ${RENDER_KEY}" \
+            -H "Accept: application/json" | jq '{name: .service.name, id: .service.id, url: .service.dashboardUrl, status: .service.serviceDetails.suspended}'
           
-          echo "=== Triggering deploy for ${SERVICE_ID} ==="
-          DEPLOY=$(curl -s -X POST "https://api.render.com/v1/services/${SERVICE_ID}/deploys" \
-            -H "Authorization: Bearer ${RENDER_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{"clearCache": "do_not_clear"}')
-          echo "Deploy response: ${DEPLOY}"
-
-      - name: Verify Service
-        env:
-          RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
-        run: |
-          echo "=== Checking service list ==="
-          curl -s "https://api.render.com/v1/services?name=abby-ai-runtime" \
-            -H "Authorization: Bearer ${RENDER_KEY}" \
-            -H "Accept: application/json" | jq '.[] | {name: .service.name, id: .service.id, url: .service.dashboardUrl}'
+          echo ""
+          echo "DONE. Service will auto-deploy."
+          echo "Dashboard: https://dashboard.render.com/web/${SID}"
