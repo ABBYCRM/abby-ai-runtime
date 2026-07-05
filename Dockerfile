@@ -35,7 +35,7 @@ COPY . .
 RUN mkdir -p /app/watch_folder/incoming /app/watch_folder/completed
 
 # Expose port (Render sets PORT env var)
-EXPOSE 9000
+EXPOSE 10000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
