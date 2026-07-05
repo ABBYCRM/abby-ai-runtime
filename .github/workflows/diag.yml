@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  fix:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - name: Force Rebuild
+      - name: Check Build Status
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
@@ -16,12 +16,13 @@ jobs:
 
           API_KEY = os.environ['RENDER_KEY']
           SID = 'srv-d959uffaqgkc73esmtm0'
-          HEADERS = {'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json', 'Accept': 'application/json'}
+          HEADERS = {'Authorization': f'Bearer {API_KEY}', 'Accept': 'application/json'}
 
           def api(method, path, data=None):
               url = f'https://api.render.com/v1{path}'
               body = json.dumps(data).encode() if data else None
-              req = urllib.request.Request(url, data=body, headers=HEADERS, method=method)
+              h = {**HEADERS, 'Content-Type': 'application/json'}
+              req = urllib.request.Request(url, data=body, headers=h, method=method)
               try:
                   resp = urllib.request.urlopen(req, timeout=30)
                   return json.loads(resp.read()) if resp.status != 204 else {}
@@ -30,30 +31,33 @@ jobs:
               except Exception as e:
                   return {'_error': str(e)}
 
-          # Check current service details
-          print('=== SERVICE STATUS ===')
-          svc = api('GET', f'/services/{SID}')
-          if isinstance(svc, dict) and 'service' in svc:
-              s = svc['service']
-              sd = s.get('serviceDetails', {})
-              print(f"Name: {s.get('name')}")
-              print(f"Suspended: {sd.get('suspended', 'N/A')}")
-              print(f"Last deploy: {sd.get('lastSuccessfulDeployAt', 'N/A')}")
-          else:
-              print(f"Unexpected: {json.dumps(svc)[:300]}")
-
-          # Check recent deploys
-          print('\n=== DEPLOYS ===')
-          deploys = api('GET', f'/services/{SID}/deploys?limit=3')
+          # Get latest deploys
+          print('=== DEPLOY STATUS ===')
+          deploys = api('GET', f'/services/{SID}/deploys?limit=5')
           if isinstance(deploys, list):
-              for d in deploys[:3]:
+              for d in deploys:
                   dd = d.get('deploy', {})
-                  print(f"  {dd.get('id', '?')}: status={dd.get('status')}, commit={dd.get('commit', {}).get('id', '?')[:8]}")
+                  status = dd.get('status', '?')
+                  commit = dd.get('commit', {}).get('id', '?')[:8]
+                  started = dd.get('startedAt', 'N/A')
+                  finished = dd.get('finishedAt', 'N/A')
+                  print(f"  {dd.get('id', '?')}: {status} | commit={commit} | started={started} | finished={finished}")
           else:
               print(f"  Error: {json.dumps(deploys)[:200]}")
 
-          # Trigger deploy
-          print('\n=== TRIGGERING DEPLOY ===')
-          d = api('POST', f'/services/{SID}/deploys', {'clearCache': 'do_not_clear'})
-          print(f"Result: {json.dumps(d)[:300] if isinstance(d, dict) else d}")
+          # Get deploy details for latest
+          if isinstance(deploys, list) and deploys:
+              latest_id = deploys[0].get('deploy', {}).get('id')
+              if latest_id:
+                  print(f'\n=== DEPLOY {latest_id} DETAILS ===')
+                  details = api('GET', f'/services/{SID}/deploys/{latest_id}')
+                  if isinstance(details, dict) and 'deploy' in details:
+                      dd = details['deploy']
+                      print(f"Status: {dd.get('status')}")
+                      print(f"Commit: {dd.get('commit', {}).get('id', '?')[:8]}")
+                      # Try to get build logs if failed
+                      if dd.get('status') == 'build_failed':
+                          print(f"Build failed - try Render dashboard: https://dashboard.render.com/web/{SID}")
+                  else:
+                      print(f"Details: {json.dumps(details)[:500]}")
           PYEOF
