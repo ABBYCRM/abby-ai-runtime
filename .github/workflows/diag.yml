@@ -4,39 +4,23 @@ on:
   workflow_dispatch:
 
 jobs:
-  diag:
+  status:
     runs-on: ubuntu-latest
     steps:
-      - name: Raw API Check
+      - name: Service Status
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          python3 << 'PYEOF'
-          import urllib.request, urllib.error, json, os
-
-          API_KEY = os.environ['RENDER_KEY']
-          SID = 'srv-d959uffaqgkc73esmtm0'
-
-          def api(method, path, data=None):
-              url = f'https://api.render.com/v1{path}'
-              body = json.dumps(data).encode() if data else None
-              h = {'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json', 'Accept': 'application/json'}
-              req = urllib.request.Request(url, data=body, headers=h, method=method)
-              try:
-                  resp = urllib.request.urlopen(req, timeout=30)
-                  return json.loads(resp.read())
-              except urllib.error.HTTPError as e:
-                  return {'_error': f'{e.code}: {e.read().decode()[:300]}'}
-              except Exception as e:
-                  return {'_error': str(e)}
-
-          # Raw service dump
-          print('=== RAW SERVICE ===')
-          svc = api('GET', f'/services/{SID}')
-          print(json.dumps(svc, indent=2)[:1500])
-
-          # Raw env vars
-          print('\n=== RAW ENV VARS ===')
-          envs = api('GET', f'/services/{SID}/env-vars')
-          print(json.dumps(envs, indent=2)[:1000])
-          PYEOF
+          curl -s "https://api.render.com/v1/services/srv-d959uffaqgkc73esmtm0" \
+            -H "Authorization: Bearer ${RENDER_KEY}" \
+            -H "Accept: application/json" | jq -r '
+              "Name: \(.name)",
+              "ID: \(.id)",
+              "URL: \(.serviceDetails.url // "N/A")",
+              "Dashboard: \(.dashboardUrl)",
+              "Status: \(.serviceDetails.suspended // "unknown")",
+              "HealthCheck: \(.serviceDetails.healthCheckPath // "none")",
+              "LastDeploy: \(.serviceDetails.lastSuccessfulDeployAt // "never")",
+              "BuildPlan: \(.serviceDetails.buildPlan)",
+              "AutoDeploy: \(.autoDeploy)"
+            '
