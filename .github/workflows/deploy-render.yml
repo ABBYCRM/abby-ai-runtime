@@ -97,7 +97,7 @@ jobs:
           # Step 3: Env vars
           print('\n=== Step 3: Set environment variables ===')
           env_vars = {
-              'PORT': '9000',
+              'PORT': '10000',
               'HOST': '0.0.0.0',
               'ABBY_MODEL': 'nvidia/llama-3.1-nemotron-70b-instruct',
               'NIM_BASE_URL': 'https://integrate.api.nvidia.com/v1',
