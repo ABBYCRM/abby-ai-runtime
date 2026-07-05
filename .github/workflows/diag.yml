@@ -7,7 +7,7 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Fix Port Mismatch
+      - name: Trigger Deploy
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
@@ -18,38 +18,40 @@ jobs:
           SID = 'srv-d959uffaqgkc73esmtm0'
           HEADERS = {'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json', 'Accept': 'application/json'}
 
-          def api(method, path, data=None):
-              url = f'https://api.render.com/v1{path}'
-              body = json.dumps(data).encode() if data else None
-              req = urllib.request.Request(url, data=body, headers=HEADERS, method=method)
+          # Try different deploy endpoints
+          for endpoint in [
+              f'https://api.render.com/v1/services/{SID}/deploys',
+              f'https://api.render.com/v1/services/{SID}/deploy',
+          ]:
+              print(f"\nTrying: {endpoint}")
+              req = urllib.request.Request(
+                  endpoint,
+                  data=b'{}',
+                  headers=HEADERS,
+                  method='POST'
+              )
               try:
                   resp = urllib.request.urlopen(req, timeout=30)
-                  return json.loads(resp.read()) if resp.status != 204 else {}
+                  body = resp.read().decode()
+                  print(f"  Status: {resp.status}")
+                  print(f"  Body: {body[:300]}")
               except urllib.error.HTTPError as e:
-                  return {'_error': f'{e.code}: {e.read().decode()[:200]}'}
+                  print(f"  HTTP {e.code}: {e.read().decode()[:300]}")
               except Exception as e:
-                  return {'_error': str(e)}
+                  print(f"  Error: {e}")
 
-          print('=== FIXING PORT ===')
-          
-          # Change PORT env var from 9000 to 10000 to match Render's openPorts
-          r = api('PUT', f'/services/{SID}/env-vars/PORT', {'value': '10000'})
-          print(f"PORT=10000: {json.dumps(r)[:200] if isinstance(r, dict) else r}")
-
-          # Also fix health check
-          r2 = api('PUT', f'/services/{SID}/env-vars/HEALTH_CHECK', {'value': '/health'})
-          
-          # Verify env vars
-          print('\n=== ENV VARS ===')
-          envs = api('GET', f'/services/{SID}/env-vars')
-          for item in (envs if isinstance(envs, list) else []):
-              ev = item.get('envVar', {})
-              key = ev.get('key', '')
-              if key in ['PORT', 'HOST', 'NIM_BASE_URL', 'ABBY_MODEL']:
-                  print(f"  {key}={ev.get('value', '')}")
-
-          # Trigger deploy
-          print('\n=== REDEPLOYING ===')
-          d = api('POST', f'/services/{SID}/deploys', {})
-          print(f"Deploy: {json.dumps(d)[:200] if isinstance(d, dict) else d}")
+          # Also check deploys list
+          print("\n=== Recent deploys ===")
+          req2 = urllib.request.Request(
+              f'https://api.render.com/v1/services/{SID}/deploys?limit=5',
+              headers={'Authorization': f'Bearer {API_KEY}', 'Accept': 'application/json'}
+          )
+          try:
+              resp2 = urllib.request.urlopen(req2, timeout=30)
+              deploys = json.loads(resp2.read())
+              for d in deploys:
+                  dd = d.get('deploy', {})
+                  print(f"  {dd.get('id', '?')}: status={dd.get('status', '?')}, finishedAt={dd.get('finishedAt', 'N/A')}")
+          except Exception as e:
+              print(f"  Error: {e}")
           PYEOF
