@@ -15,67 +15,109 @@ jobs:
       - name: Deploy to Render
         env:
           RENDER_KEY: ${{ secrets.RENDER_API_KEY }}
+          NIM_KEY_0: ${{ secrets.NIM_API_KEY }}
+          NIM_KEY_1: ${{ secrets.NIM_API_KEY_1 }}
+          NIM_KEY_2: ${{ secrets.NIM_API_KEY_2 }}
+          NIM_KEY_3: ${{ secrets.NIM_API_KEY_3 }}
+          NIM_KEY_4: ${{ secrets.NIM_API_KEY_4 }}
+          NIM_KEY_5: ${{ secrets.NIM_API_KEY_5 }}
+          NIM_KEY_6: ${{ secrets.NIM_API_KEY_6 }}
+          NIM_KEY_7: ${{ secrets.NIM_API_KEY_7 }}
         run: |
-          echo "=== Step 1: List services ==="
-          SERVICES=$(curl -s -X GET "https://api.render.com/v1/services?limit=100" \
-            -H "Authorization: Bearer ${RENDER_KEY}" \
-            -H "Accept: application/json" || echo "[]")
-          echo "Raw services response length: ${#SERVICES}"
-          echo "Services: ${SERVICES}" | head -c 500
-          echo ""
-          
-          echo "=== Step 2: Find abby-ai-runtime ==="
-          SID=$(echo "${SERVICES}" | jq -r '.[] | select(.service.name=="abby-ai-runtime") | .service.id // empty' 2>/dev/null || echo "")
-          echo "Found SID: '${SID}'"
-          
-          if [ -z "$SID" ]; then
-            echo "=== Step 3: Create service ==="
-            CREATE=$(curl -s -X POST "https://api.render.com/v1/services" \
-              -H "Authorization: Bearer ${RENDER_KEY}" \
-              -H "Content-Type: application/json" \
-              -d '{"type":"web_service","name":"abby-ai-runtime","repo":"https://github.com/ABBYCRM/abby-ai-runtime","branch":"main","runtime":"docker","region":"oregon","plan":"starter","dockerfilePath":"./Dockerfile","healthCheckPath":"/health","autoDeploy":true}' || echo '{"error":"curl failed"}')
-            echo "Create response: ${CREATE}"
-            SID=$(echo "${CREATE}" | jq -r '.service.id // .id // empty' 2>/dev/null || echo "")
-            echo "New SID: '${SID}'"
-          fi
-          
-          if [ -z "$SID" ]; then
-            echo "WARNING: No service ID. Checking what services exist:"
-            echo "${SERVICES}" | jq -r '.[].service.name' 2>/dev/null || echo "cannot parse"
-            exit 0
-          fi
-          
-          echo "=== Step 4: Set env vars on ${SID} ==="
-          
-          set_env() {
-            RESULT=$(curl -s -X PUT "https://api.render.com/v1/services/${SID}/env-vars/$1" \
-              -H "Authorization: Bearer ${RENDER_KEY}" \
-              -H "Content-Type: application/json" \
-              -d "{\"value\":\"$2\"}" || echo "curl-fail")
-            echo "  $1: $(echo "${RESULT}" | jq -r '.message // .envVar.key // "ok"' 2>/dev/null || echo "set")"
+          python3 << 'PYEOF'
+          import urllib.request, urllib.error, json, os, sys
+
+          API_KEY = os.environ['RENDER_KEY']
+          HEADERS = {
+              'Authorization': f'Bearer {API_KEY}',
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
           }
-          
-          set_env "PORT" "9000"
-          set_env "HOST" "0.0.0.0"
-          set_env "ABBY_MODEL" "nvidia/llama-3.1-nemotron-70b-instruct"
-          set_env "NIM_BASE_URL" "https://integrate.api.nvidia.com/v1"
-          set_env "ABBY_MAX_TOKENS" "8192"
-          set_env "ABBY_CREW_TEMP" "0.2"
-          set_env "ABBY_METAGPT_TEMP" "0.1"
-          set_env "NIM_API_KEY" "${{ secrets.NIM_API_KEY }}"
-          set_env "NIM_API_KEY_1" "${{ secrets.NIM_API_KEY_1 }}"
-          set_env "NIM_API_KEY_2" "${{ secrets.NIM_API_KEY_2 }}"
-          set_env "NIM_API_KEY_3" "${{ secrets.NIM_API_KEY_3 }}"
-          set_env "NIM_API_KEY_4" "${{ secrets.NIM_API_KEY_4 }}"
-          set_env "NIM_API_KEY_5" "${{ secrets.NIM_API_KEY_5 }}"
-          set_env "NIM_API_KEY_6" "${{ secrets.NIM_API_KEY_6 }}"
-          set_env "NIM_API_KEY_7" "${{ secrets.NIM_API_KEY_7 }}"
-          
-          echo "=== Step 5: Verify ==="
-          VERIFY=$(curl -s "https://api.render.com/v1/services/${SID}" \
-            -H "Authorization: Bearer ${RENDER_KEY}" \
-            -H "Accept: application/json" || echo "{}")
-          echo "${VERIFY}" | jq -r '{name: .service.name, id: .service.id, url: .service.dashboardUrl, suspended: .service.serviceDetails.suspended}' 2>/dev/null || echo "verify response: ${VERIFY}"
-          
-          echo ""
-          echo "DONE. Check dashboard: https://dashboard.render.com"
+
+          def api(method, path, data=None):
+              url = f'https://api.render.com/v1{path}'
+              body = json.dumps(data).encode() if data else None
+              req = urllib.request.Request(url, data=body, headers=HEADERS, method=method)
+              try:
+                  resp = urllib.request.urlopen(req, timeout=30)
+                  return json.loads(resp.read()) if resp.status != 204 else {}
+              except urllib.error.HTTPError as e:
+                  err = e.read().decode()
+                  print(f'API ERROR {e.code}: {err}')
+                  return None
+              except Exception as e:
+                  print(f'Network error: {e}')
+                  return None
+
+          # Step 1: Find existing service
+          print('=== Finding service ===')
+          services = api('GET', '/services?limit=100') or []
+          sid = None
+          for item in services:
+              s = item.get('service', {})
+              if s.get('name') == 'abby-ai-runtime':
+                  sid = s['id']
+                  print(f'Found existing: {sid}')
+                  break
+
+          # Step 2: Create if not found
+          if not sid:
+              print('=== Creating service ===')
+              result = api('POST', '/services', {
+                  'type': 'web_service',
+                  'name': 'abby-ai-runtime',
+                  'repo': 'https://github.com/ABBYCRM/abby-ai-runtime',
+                  'branch': 'main',
+                  'runtime': 'docker',
+                  'region': 'oregon',
+                  'plan': 'starter',
+                  'dockerfilePath': './Dockerfile',
+                  'healthCheckPath': '/health',
+                  'autoDeploy': 'yes'
+              })
+              if result:
+                  sid = result.get('id') or result.get('service', {}).get('id')
+                  print(f'Created: {sid}')
+                  print(f'Full response: {json.dumps(result)[:500]}')
+              else:
+                  print('CREATE FAILED')
+                  sys.exit(1)
+
+          if not sid:
+              print('No service ID. Aborting.')
+              sys.exit(1)
+
+          # Step 3: Set env vars
+          print('\n=== Setting env vars ===')
+          env_vars = {
+              'PORT': '9000',
+              'HOST': '0.0.0.0',
+              'ABBY_MODEL': 'nvidia/llama-3.1-nemotron-70b-instruct',
+              'NIM_BASE_URL': 'https://integrate.api.nvidia.com/v1',
+              'ABBY_MAX_TOKENS': '8192',
+              'ABBY_CREW_TEMP': '0.2',
+              'ABBY_METAGPT_TEMP': '0.1',
+          }
+          for i in range(8):
+              val = os.environ.get(f'NIM_KEY_{i}', '')
+              if val:
+                  env_vars[f'NIM_API_KEY' if i == 0 else f'NIM_API_KEY_{i}'] = val
+
+          for key, value in env_vars.items():
+              print(f'  {key}... ', end='', flush=True)
+              r = api('PUT', f'/services/{sid}/env-vars/{key}', {'value': value})
+              print('ok' if r else 'fail')
+
+          # Step 4: Verify
+          print('\n=== Verify ===')
+          info = api('GET', f'/services/{sid}')
+          if info:
+              s = info.get('service', {})
+              print(f"Name: {s.get('name')}")
+              print(f"ID: {s.get('id')}")
+              print(f"Dashboard: {s.get('dashboardUrl')}")
+              print(f"Suspended: {s.get('serviceDetails', {}).get('suspended', 'N/A')}")
+              print(f"URL: https://{s.get('name')}.onrender.com")
+
+          print('\nDEPLOY COMPLETE')
+          PYEOF
